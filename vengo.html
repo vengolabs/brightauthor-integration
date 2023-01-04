@@ -3,6 +3,7 @@
 
 <head>
     <meta charset="utf-8">
+    <meta name="build" content="23.01.03.2100">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
 
     <title>ON_ADS_MANAGER_LOADED</title>
@@ -27,15 +28,27 @@
             width: 100vw;
             height: 100vh;
         }
+
+        .hide {
+            display: none;
+        }
+
+        .show {
+            display: block;
+        }
     </style>
 </head>
 
 <body>
     <div class="fullscreen">
-        <video id="vast-player" class="fill-screen" muted />
+        <img id="image-player" class="fill-screen hide" />
+        <video id="vast-player" class="fill-screen hide" muted />
     </div>
 
     <script>
+        //Vengo adserver url
+        var baseUrl = "https://pubads.vengolabs.com/trafficking/vast/ad_request";
+
         //UDP parameters
         //defined in Bright Author presentation settings
         var bsUDPDestination = "255.255.255.255";
@@ -64,6 +77,14 @@
             complete: "complete"
         }
 
+        //5 minute timeout for potential frozen states
+        var timeout = 5 * 60 * 1000;
+
+        //Start timer
+        setTimeout(function () {
+            sendBrightSignUDPMessage();
+        }, timeout);
+
         //Script entry point
         getBrightSignUserVariables();
 
@@ -74,8 +95,7 @@
         /**
          * Sends a UDP message to Bright Author to interact with UDP event
          */
-        function sendBrightSignUDPMessage()
-        {
+        function sendBrightSignUDPMessage() {
             var bsSocketMessage = new BSDatagramSocket();
             bsSocketMessage.SendTo(bsUDPDestination, bsUDPPort, "vengo");
             bsSocketMessage.Close();
@@ -84,8 +104,7 @@
         /**
          * Returns a BrightSign Player unique identifier
          */
-        function getBrightSignPlayerDeviceId()
-        {
+        function getBrightSignPlayerDeviceId() {
             var deviceInfo = new BSDeviceInfo();
             return deviceInfo.deviceUniqueId;
         }
@@ -93,21 +112,20 @@
         /**
          * Gets the user variables defined in the presentation
          * in Bright Author
-         */ 
-        function getBrightSignUserVariables()
-        {
+         */
+        function getBrightSignUserVariables() {
             //Default values for Vengo ad parameters
             var adUnitId = getBrightSignPlayerDeviceId();
             var organizationId = "brightsign";
 
             var url = "http://localhost:8080/GetUserVars";
-            
+
             try {
                 var xhr = new XMLHttpRequest();
                 xhr.open("GET", url, true);
                 xhr.onreadystatechange = function () {
                     if (this.readyState === XMLHttpRequest.DONE) {
-                        if (this.status === 200) { 
+                        if (this.status === 200) {
                             console.log(this.response);
 
                             try {
@@ -127,7 +145,7 @@
                             }
 
                             //Start main function
-                            getVASTVideo(adUnitId, organizationId);
+                            getVASTTag(adUnitId, organizationId);
                         }
                     }
                 };
@@ -141,22 +159,19 @@
          * Gets VAST tag from Vengo staging ad server
          * using the ad unit id and organization id 
          */
-        function getVASTVideo(adUnitId, organizationId) {
-            var url = "https://pubads.vengolabs.com/trafficking/vast/ad_request?organization_id="
-                + organizationId + "&ad_unit_id=" + adUnitId;
+        function getVASTTag(adUnitId, organizationId) {
+            var url = baseUrl + "?organization_id=" + organizationId + "&ad_unit_id=" + adUnitId;
 
             try {
                 var xhr = new XMLHttpRequest();
                 xhr.open("GET", url, true);
                 xhr.onreadystatechange = function () {
-                    if (this.readyState === XMLHttpRequest.DONE) {
-                        if (this.status === 200) {
-                            parseXML(this.responseXML);
-                        }
-                        else {
-                            setAdEventState(adEvents.error);
-                            sendBrightSignUDPMessage();
-                        }
+                    if (this.readyState === XMLHttpRequest.DONE && this.status === 200) {
+                        parseXML(this.responseXML);
+                    }
+                    else {
+                        setAdEventState(adEvents.error);
+                        sendBrightSignUDPMessage();
                     }
                 };
                 xhr.send(null);
@@ -168,36 +183,41 @@
         }
 
         /**
-         * Sends VAST tracking events 
+         * Hits specific endpoint given URL 
          */
-        function sendTrackingEvents(event, trackingEvents) {
-            console.log(event);
-            for (var i = 0; i < trackingEvents.length; i++) {
-                if (trackingEvents[i].attributes[0].nodeValue == event) {
-                    try {
-                        var xhr = new XMLHttpRequest();
-                        xhr.open("GET", trackingEvents[i].textContent, true);
-                        xhr.send(null);
-                    } catch (e) {
-                        console.error(e);
-                    }
-                    break;
-                }
+        function hitEndpoint(url) {
+            try {
+                var xhr = new XMLHttpRequest();
+                xhr.open("GET", url, true);
+                xhr.send(null);
+            } catch (e) {
+                console.error(e);
             }
+        }
+
+        /**
+         * Hits the specified tracking endpoint
+         * @param {vastTrackingEvents} event
+         */
+        function sendTrackingEvent(event) {
+            console.log("Informed ad server of playback state: " + event);
+            hitEndpoint(document.getElementById("vast-player").getAttribute("data-tracking-" + event + "-url"));
         }
 
         /**
         * Hits the impression endpoint
         */
-        function sendImpression(impressionUrl) {
-            console.log("Impression");
-            try {
-                var xhr = new XMLHttpRequest();
-                xhr.open("GET", impressionUrl, true);
-                xhr.send(null);
-            } catch (e) {
-                console.error(e);
-            }
+        function sendImpression() {
+            console.log("Informed ad server of intention to play ad");
+            hitEndpoint(document.getElementById("vast-player").getAttribute("data-impression-url"));
+        }
+
+        /**
+        * Hits the error endpoint
+        */
+        function sendError() {
+            console.log("Informed ad server of intention to reject ad");
+            hitEndpoint(document.getElementById("vast-player").getAttribute("data-error-url"));
         }
 
         /**
@@ -208,10 +228,21 @@
             //If it doesn't, then there isn't a file to be played
             var mediaFiles = vast.getElementsByTagName("MediaFile");
             if (mediaFiles.length > 0) {
+                document.getElementById("vast-player").setAttribute("data-impression-url", vast.getElementsByTagName("Impression")[0].textContent);
+                document.getElementById("vast-player").setAttribute("data-error-url", vast.getElementsByTagName("Error")[0].textContent);
+
                 //Get all tracking events and set up video player
                 var trackingEvents = vast.getElementsByTagName("Tracking");
-                setupVASTPlayerAndEvents(mediaFiles[0].textContent, trackingEvents);
-                sendImpression((vast.getElementsByTagName("Impression"))[0].textContent);
+                for (var i = 0; i < trackingEvents.length; i++) {
+                    document.getElementById("vast-player").setAttribute("data-tracking-" + trackingEvents[i].attributes[0].nodeValue + "-url",
+                        trackingEvents[i].textContent);
+                }
+
+                //Get media duration in milliseconds
+                var hms = (vast.getElementsByTagName("Duration")[0].textContent).split(":");
+                var durationInMs = (+hms[0]) * 60 * 60 + (+hms[1]) * 60 + (+hms[2]) * 1000;
+
+                setupVASTPlayerAndEvents(mediaFiles[0], durationInMs);
             }
             else {
                 setAdEventState(adEvents.noAdsToPlay);
@@ -222,13 +253,79 @@
         /**
          * Sets up the VAST tracking events and plays the video
          */
-        function setupVASTPlayerAndEvents(videoUrl, trackingEvents) {
-            var vastPlayer = document.getElementById("vast-player");
-            vastPlayer.addEventListener("loadedmetadata", function () {
-                setAdEventState(adEvents.loadedAdPlayer);
+        function setupVASTPlayerAndEvents(mediaFile, durationInMs) {
+            if (mediaFile.attributes[3].nodeValue.includes("video")) {
+                var vastPlayer = document.getElementById("vast-player");
+                vastPlayer.addEventListener("loadedmetadata", function () {
+                    setAdEventState(adEvents.loadedAdPlayer);
+
+                    //Compute the quartile durations
+                    var duration = this.duration;
+                    var firstQuartile = duration * 0.25;
+                    var midpoint = duration * 0.5;
+                    var thirdQuartile = duration * 0.75;
+
+                    var firstQuartileComplete = false;
+                    var midpointComplete = false;
+                    var thirdQuartileComplete = false;
+
+                    //Attach listener to video duration to send tracking
+                    //events at the appropriate time
+                    this.addEventListener("timeupdate", function () {
+                        if (this.currentTime >= thirdQuartile && !thirdQuartileComplete) {
+                            thirdQuartileComplete = true;
+                            sendTrackingEvent(vastTrackingEvents.thirdQuartile);
+                            setAdEventState(adEvents.thirdQuartileAdPlayback);
+                        }
+                        else if (this.currentTime >= midpoint && !midpointComplete) {
+                            midpointComplete = true;
+                            sendTrackingEvent(vastTrackingEvents.midpoint);
+                            setAdEventState(adEvents.midpointAdPlayback);
+                        }
+                        else if (this.currentTime >= firstQuartile && !firstQuartileComplete) {
+                            firstQuartileComplete = true;
+                            sendTrackingEvent(vastTrackingEvents.firstQuartile);
+                            setAdEventState(adEvents.firstQuartileAdPlayback);
+                        }
+                    });
+
+                });
+
+                //Attach listener to wait until enough of the video has loaded
+                //before playing
+                vastPlayer.addEventListener("canplaythrough", function () {
+                    setPlayerState(adEvents.loadedAdPlayer);
+                    setAdEventState(adEvents.loadedAdPlayer);
+                    startPlayback();
+                });
+
+                //Attach listener to send complete tracking event
+                vastPlayer.addEventListener("ended", function () {
+                    sendTrackingEvent(vastTrackingEvents.complete);
+
+                    setPlayerState(adEvents.completedAdPlayback);
+                    setAdEventState(adEvents.completedAdPlayback);
+                    setAdEventState(adEvents.noAdsToPlay);
+                    sendBrightSignUDPMessage();
+                });
+
+                //Set the video URL to load the video
+                vastPlayer.src = mediaFile.textContent;
+                vastPlayer.load();
+            }
+            else if (mediaFile.attributes[3].nodeValue.includes("image")) {
+                var imagePlayer = document.getElementById("image-player");
+                imagePlayer.src = mediaFile.textContent;
+                imagePlayer.classList.remove("hide");
+                imagePlayer.classList.add("show");
+
+                sendTrackingEvent(vastTrackingEvents.start);
+                setPlayerState(adEvents.startedAdPlayback);
+                setAdEventState(adEvents.startedAdPlayback);
+                sendImpression();
 
                 //Compute the quartile durations
-                var duration = this.duration;
+                var duration = durationInMs;
                 var firstQuartile = duration * 0.25;
                 var midpoint = duration * 0.5;
                 var thirdQuartile = duration * 0.75;
@@ -237,46 +334,62 @@
                 var midpointComplete = false;
                 var thirdQuartileComplete = false;
 
-                //Attach listener to video duration to send tracking
-                //events at the appropriate time
-                this.addEventListener("timeupdate", function () {
-                    if (this.currentTime >= thirdQuartile && !thirdQuartileComplete) {
+                var startTime = Date.now();
+                var imageTimer = setInterval(function () {
+                    var currentTime = Date.now() - startTime;
+                    if (currentTime >= thirdQuartile && !thirdQuartileComplete) {
                         thirdQuartileComplete = true;
-                        sendTrackingEvents(vastTrackingEvents.thirdQuartile, trackingEvents);
+                        sendTrackingEvent(vastTrackingEvents.thirdQuartile);
                         setAdEventState(adEvents.thirdQuartileAdPlayback);
                     }
-                    else if (this.currentTime >= midpoint && !midpointComplete) {
+                    else if (currentTime >= midpoint && !midpointComplete) {
                         midpointComplete = true;
-                        sendTrackingEvents(vastTrackingEvents.midpoint, trackingEvents);
+                        sendTrackingEvent(vastTrackingEvents.midpoint);
                         setAdEventState(adEvents.midpointAdPlayback);
                     }
-                    else if (this.currentTime >= firstQuartile && !firstQuartileComplete) {
+                    else if (currentTime >= firstQuartile && !firstQuartileComplete) {
                         firstQuartileComplete = true;
-                        sendTrackingEvents(vastTrackingEvents.firstQuartile, trackingEvents);
+                        sendTrackingEvent(vastTrackingEvents.firstQuartile);
                         setAdEventState(adEvents.firstQuartileAdPlayback);
                     }
-                });
+                    else if (currentTime >= durationInMs) {
+                        clearInterval(imageTimer);
 
-            });
+                        sendTrackingEvent(vastTrackingEvents.complete);
 
-            //Attach listener to wait until enough of the video has loaded
-            //before playing
-            vastPlayer.addEventListener("canplaythrough", function () {
-                this.play();
-                sendTrackingEvents(vastTrackingEvents.start, trackingEvents);
-                setAdEventState(adEvents.startedAdPlayback);
-            });
-
-            //Attach listener to send complete tracking event
-            vastPlayer.addEventListener("ended", function () {
-                sendTrackingEvents(vastTrackingEvents.complete, trackingEvents);
-                setAdEventState(adEvents.completedAdPlayback);
-                setAdEventState(adEvents.noAdsToPlay);
+                        setPlayerState(adEvents.completedAdPlayback);
+                        setAdEventState(adEvents.completedAdPlayback);
+                        setAdEventState(adEvents.noAdsToPlay);
+                        sendBrightSignUDPMessage();
+                    }
+                }, 1000);
+            }
+            else {
+                setAdEventState(adEvents.error);
                 sendBrightSignUDPMessage();
-            });
+            }
+        }
 
-            //Set the video URL to load the video
-            vastPlayer.src = videoUrl;
+        /**
+         * Starts playback of the video and hits the required endpoints
+         */
+        function startPlayback() {
+            document.getElementById("vast-player").classList.remove("hide");
+            document.getElementById("vast-player").classList.add("show");
+            document.getElementById("vast-player").play();
+
+            sendTrackingEvent(vastTrackingEvents.start);
+            setPlayerState(adEvents.startedAdPlayback);
+            setAdEventState(adEvents.startedAdPlayback);
+            sendImpression();
+        }
+
+        /**
+         * Sets the ad event data attribute
+         * @param {adEvents} playerState
+         */
+        function setPlayerState(playerState) {
+            document.getElementById("vast-player").setAttribute("data-state", playerState);
         }
 
         /**
