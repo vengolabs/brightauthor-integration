@@ -3,8 +3,10 @@
 
 <head>
     <meta charset="utf-8">
-    <meta name="build" content="23.01.03.2100">
-    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <meta name="build" content="23.01.21.2030" />
+    <meta name="author" content="Jafar Mohammed">
+    <meta name="robots" content="noindex, nofollow" / <meta name="viewport"
+        content="width=device-width, initial-scale=1, shrink-to-fit=no">
 
     <title>ON_ADS_MANAGER_LOADED</title>
 
@@ -27,6 +29,7 @@
         .fill-screen {
             width: 100vw;
             height: 100vh;
+            object-fit: contain;
         }
 
         .hide {
@@ -46,13 +49,26 @@
     </div>
 
     <script>
-        //Vengo adserver url
-        var baseUrl = "https://staging-pubads.vengolabs.com/trafficking/vast/ad_request";
+        //****************************************************
+        //INITIALIZATION
+        //****************************************************
+
+        //Specify maximum length of ad (in milliseconds) that will be played
+        //Ads of greater length will be rejected
+        //0 = accept all ads
+        var maxAdDurationInMs = 0;
 
         //UDP parameters
         //defined in Bright Author presentation settings
         var bsUDPDestination = "255.255.255.255";
         var bsUDPPort = "5000";
+
+        //Vengo ad server URL
+        var baseUrl = "https://pubads.vengolabs.com/trafficking/vast/ad_request";
+
+        //Vengo staging URLs
+        baseUrl = "https://staging-pubads.vengolabs.com/trafficking/vast/ad_request";
+        //baseUrl = "https://staging-adserver.vengolabs.com/api/v2/ad_request";
 
         //Ad playing events set as the document title and
         //posted to a parent frame
@@ -77,15 +93,7 @@
             complete: "complete"
         }
 
-        //5 minute timeout for potential frozen states
-        var timeout = 5 * 60 * 1000;
-
-        //Start timer
-        setTimeout(function () {
-            sendBrightSignUDPMessage();
-        }, timeout);
-
-        //Script entry point
+        //Initiate script
         getBrightSignUserVariables();
 
         //************
@@ -112,6 +120,8 @@
         /**
          * Gets the user variables defined in the presentation
          * in Bright Author
+         * 
+         * Uses Device ID unless ad unit id is explicitly defined
          */
         function getBrightSignUserVariables() {
             //Default values for Vengo ad parameters
@@ -144,7 +154,7 @@
                                 console.error(e);
                             }
 
-                            //Start main function
+                            //Start main function to get ads
                             getVASTTag(adUnitId, organizationId);
                         }
                     }
@@ -166,25 +176,23 @@
                 var xhr = new XMLHttpRequest();
                 xhr.open("GET", url, true);
                 xhr.onreadystatechange = function () {
-                    if (this.readyState === XMLHttpRequest.DONE && this.status === 200) {
-                        parseXML(this.responseXML);
-                    }
-                    else {
-                        setAdEventState(adEvents.error);
-                        sendBrightSignUDPMessage();
+                    if (this.readyState === XMLHttpRequest.DONE) {
+                        if (this.status === 200) {
+                            parseXML(this.responseXML);
+                        }
+                        else {
+                            setAdEventState(adEvents.error);
+                        }
                     }
                 };
                 xhr.send(null);
             } catch (e) {
                 console.error(e);
                 setAdEventState(adEvents.error);
-                sendBrightSignUDPMessage();
             }
         }
 
-        /**
-         * Hits specific endpoint given URL 
-         */
+        //Hit endpoint given url
         function hitEndpoint(url) {
             try {
                 var xhr = new XMLHttpRequest();
@@ -231,7 +239,6 @@
                 document.getElementById("vast-player").setAttribute("data-impression-url", vast.getElementsByTagName("Impression")[0].textContent);
                 document.getElementById("vast-player").setAttribute("data-error-url", vast.getElementsByTagName("Error")[0].textContent);
 
-                //Get all tracking events and set up video player
                 var trackingEvents = vast.getElementsByTagName("Tracking");
                 for (var i = 0; i < trackingEvents.length; i++) {
                     document.getElementById("vast-player").setAttribute("data-tracking-" + trackingEvents[i].attributes[0].nodeValue + "-url",
@@ -242,11 +249,20 @@
                 var hms = (vast.getElementsByTagName("Duration")[0].textContent).split(":");
                 var durationInMs = (+hms[0]) * 60 * 60 + (+hms[1]) * 60 + (+hms[2]) * 1000;
 
-                setupVASTPlayerAndEvents(mediaFiles[0], durationInMs);
+                if (maxAdDurationInMs == 0 || durationInMs <= maxAdDurationInMs) {
+                    //Get all tracking events and set up player
+                    setupVASTPlayerAndEvents(mediaFiles[0], durationInMs);
+                }
+                else {
+                    sendError();
+                    setAdEventState(adEvents.noAdsToPlay);
+                }
+
             }
             else {
+                console.log("No ad to play");
                 setAdEventState(adEvents.noAdsToPlay);
-                sendBrightSignUDPMessage();
+                //setAdEventState(adEvents.error);
             }
         }
 
@@ -288,7 +304,6 @@
                             setAdEventState(adEvents.firstQuartileAdPlayback);
                         }
                     });
-
                 });
 
                 //Attach listener to wait until enough of the video has loaded
@@ -296,6 +311,7 @@
                 vastPlayer.addEventListener("canplaythrough", function () {
                     setPlayerState(adEvents.loadedAdPlayer);
                     setAdEventState(adEvents.loadedAdPlayer);
+
                     startPlayback();
                 });
 
@@ -306,7 +322,6 @@
                     setPlayerState(adEvents.completedAdPlayback);
                     setAdEventState(adEvents.completedAdPlayback);
                     setAdEventState(adEvents.noAdsToPlay);
-                    sendBrightSignUDPMessage();
                 });
 
                 //Set the video URL to load the video
@@ -360,13 +375,11 @@
                         setPlayerState(adEvents.completedAdPlayback);
                         setAdEventState(adEvents.completedAdPlayback);
                         setAdEventState(adEvents.noAdsToPlay);
-                        sendBrightSignUDPMessage();
                     }
                 }, 1000);
             }
             else {
                 setAdEventState(adEvents.error);
-                sendBrightSignUDPMessage();
             }
         }
 
@@ -393,11 +406,44 @@
         }
 
         /**
-         * Sets the ad event in the document title
+         * Sets the ad event in the document title and
+         * posts a message to the parent frame
          */
         function setAdEventState(adEvent) {
             //Set the document title
             document.title = adEvent;
+
+            //Post message to player if all ads have played
+            if (adEvent == adEvents.noAdsToPlay) {
+                sendBrightSignUDPMessage();
+            }
+        }
+
+        /**
+        * Gets the specified parameter value given the key. Returns a default value if
+        * key is null (doesn't exist)
+        * @param {string} parameterKey
+        * @param {any} defaultReturnValue
+        */
+        function getUrlParameter(parameterKey, defaultReturnValue) {
+            var parameter = urlParam(parameterKey);
+            return (parameter == null || parameter == 0) ? defaultReturnValue : parameter;
+        }
+
+        /**
+             * Gets value of url parameter
+             * @param {string} name
+             */
+        function urlParam(name) {
+            //IE-based browsers do not support URLSearchParams
+            //Credit: https://stackoverflow.com/a/45760894
+            var results = new RegExp('[\?&]' + name + '=([^&#]*)').exec(window.location.href);
+            if (results == null) {
+                return null;
+            }
+            else {
+                return decodeURI(results[1]) || 0;
+            }
         }
     </script>
 </body>
