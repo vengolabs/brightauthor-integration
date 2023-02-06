@@ -671,7 +671,7 @@
             "params": [
               {
                 "type": "Text",
-                "value": "665"
+                "value": "test-landscape"
               }
             ]
           },
@@ -687,7 +687,7 @@
             "params": [
               {
                 "type": "Text",
-                "value": "vengo"
+                "value": "brightsign"
               }
             ]
           },
@@ -725,7 +725,7 @@
         "location": "Local",
         "assetType": "HtmlSite",
         "scope": "3eb715df08f89c08",
-        "locator": "file://\\H:\\Jafar\\Documents\\brightauthor\\vast\\vengo.html",
+        "locator": "file://\\H:\\Jafar\\Documents\\brightauthor\\vast\\vengo_staging.html",
         "fileSize": 10797,
         "lastModifiedDate": "2022-04-26T23:34:43.743Z",
         "refCount": 1
