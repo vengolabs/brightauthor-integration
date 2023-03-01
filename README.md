@@ -34,3 +34,6 @@ Watch walkthrough video: https://www.youtube.com/watch?v=G-CpXYJD_Nw
    - Label should also be `vengo`
    - Target state can be the next state or the same state to repeat
 6. Publish the presentation
+
+### Caching
+To enable caching using IndexedDB, [enable reserve storage in BrightAuthor](https://brightsign.atlassian.net/wiki/spaces/DOC/pages/395313524/Application+Preferences#ApplicationPreferences-Storage). At least 10% should be reserved for HTML IndexedDB.
