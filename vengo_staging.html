@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="utf-8">
-    <meta name="build" content="23.02.27.1700" />
+    <meta name="build" content="23.03.01.1200" />
     <meta name="author" content="Jafar Mohammed, Vengo">
     <meta name="robots" content="noindex, nofollow" / <meta name="viewport"
         content="width=device-width, initial-scale=1, shrink-to-fit=no">
@@ -207,31 +207,32 @@
             if (enableBSIntegration) {
                 var url = "http://localhost:8080/GetUserVars";
 
+                //Get user variables
                 try {
                     var xhr = new XMLHttpRequest();
                     xhr.open("GET", url, true);
                     xhr.onreadystatechange = function () {
-                        if (this.readyState === XMLHttpRequest.DONE) {
-                            if (this.status === 200) {
-                                try {
-                                    var userVars = this.responseXML.getElementsByTagName("BrightSignUserVariables");
-                                    if (userVars[0].childElementCount > 0) {
-                                        for (var i = 0; i < userVars[0].childElementCount; i++) {
-                                            if (userVars[0].children[i].attributes[0].nodeValue == "organization_id") {
-                                                organizationId = userVars[0].children[i].textContent;
-                                            }
-                                            else if (userVars[0].children[i].attributes[0].nodeValue == "ad_unit_id") {
-                                                adUnitId = userVars[0].children[i].textContent;
-                                            }
+                        if (this.readyState === XMLHttpRequest.DONE && this.status === 200) {
+                            try {
+                                //Parse XML response
+                                var userVars = this.responseXML.getElementsByTagName("BrightSignUserVariables");
+                                if (userVars[0].childElementCount > 0) {
+                                    for (var i = 0; i < userVars[0].childElementCount; i++) {
+                                        //Get organization id or ad unit id
+                                        if (userVars[0].children[i].attributes[0].nodeValue == "organization_id") {
+                                            organizationId = userVars[0].children[i].textContent;
+                                        }
+                                        else if (userVars[0].children[i].attributes[0].nodeValue == "ad_unit_id") {
+                                            adUnitId = userVars[0].children[i].textContent;
                                         }
                                     }
-                                } catch (e) {
-                                    console.error(e);
                                 }
-
-                                //Start main function to get ads
-                                getVASTTag(adUnitId, organizationId);
+                            } catch (e) {
+                                console.error(e);
                             }
+
+                            //Start main function to get ads
+                            getVASTTag(adUnitId, organizationId);
                         }
                     };
                     xhr.send(null);
@@ -263,12 +264,14 @@
                             parseXML(this.responseXML);
                         }
                         else {
+                            console.log("**VENGO** Failed to get VAST tag");
                             setAdEventState(adEvents.error);
                         }
                     }
                 };
                 xhr.send(null);
             } catch (e) {
+                console.log("**VENGO** GetVASTTag Error");
                 console.error(e);
                 setAdEventState(adEvents.error);
             }
@@ -352,7 +355,7 @@
                         } else {
                             // Fetch the videos from the network
                             // Use cors proxy due to programmatic server cors restriction
-                            fetch((enableBSIntegration? "" : "https://corsproxy.vengo.tv/") + mediaFileUrl)
+                            fetch((enableBSIntegration ? "" : "https://corsproxy.vengo.tv/") + mediaFileUrl)
                                 .then((response) => {
                                     if (!response.ok) {
                                         console.log("**VENGO** Error in network response");
@@ -516,6 +519,7 @@
                 }, 1000);
             }
             else {
+                console.log("**VENGO** Ad type not video or image");
                 setAdEventState(adEvents.error);
             }
         }
@@ -550,8 +554,8 @@
             //Set the document title
             document.title = adEvent;
 
-            //Post message to player if all ads have played
-            if (adEvent == adEvents.noAdsToPlay) {
+            //Post message to player if all ads have played or error
+            if (adEvent == adEvents.noAdsToPlay || adEvent == adEvents.error) {
                 sendBrightSignUDPMessage();
             }
         }
