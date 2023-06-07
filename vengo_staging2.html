@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <meta name="build" content="23.06.07.1300" />
+    <meta name="author" content="Jafar Mohammed, Vengo">
+    <meta name="robots" content="noindex, nofollow" / <meta name="viewport"
+        content="width=device-width, initial-scale=1, shrink-to-fit=no">
+
+    <title>ON_ADS_MANAGER_LOADED</title>
+
+    <style>
+        body {
+            margin: 0;
+            background: black;
+            overflow: hidden;
+        }
+
+        .fullscreen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            text-align: center;
+        }
+
+        .fill-screen {
+            width: 100vw;
+            height: 100vh;
+            object-fit: contain;
+        }
+
+        .hide {
+            display: none;
+        }
+
+        .show {
+            display: block;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="fullscreen">
+        <img id="image-player" class="fill-screen hide" />
+        <video id="vast-player" class="fill-screen hide" muted />
+    </div>
+
+    <script>
+        //Autoswitching flag to enable running in desktop browsers
+        var enableBSIntegration = true;
+
+        //****************************************************
+        //INITIALIZATION
+        //****************************************************
+
+        //Specify maximum length of ad (in milliseconds) that will be played
+        //Ads of greater length will be rejected
+        //0 = accept all ads
+        var maxAdDurationInMs = 0;
+
+        //UDP parameters
+        //defined in Bright Author presentation settings
+        var bsUDPDestination = "127.0.0.1";
+        var bsUDPPort = "5000";
+
+        //Vengo ad server URL
+        var baseUrl = "https://pubads.vengolabs.com/trafficking/vast/ad_request";
+
+        //Vengo staging URLs
+        baseUrl = "https://staging-pubads.vengolabs.com/trafficking/vast/ad_request";
+        //baseUrl = "https://staging-adserver.vengolabs.com/api/v2/ad_request";
+
+        //Default organization id
+        var defaultOrganizationId = "brightsign";
+
+        //Testing ad unit id
+        var testingAdUnitId = "test-landscape";
+
+        //Ad playing events set as the document title and
+        //posted to a parent frame
+        var adEvents = {
+            loadedAdManager: "ON_ADS_MANAGER_LOADED",
+            loadedAdPlayer: "LOADED",
+            startedAdPlayback: "STARTED",
+            firstQuartileAdPlayback: "FIRST_QUARTILE",
+            midpointAdPlayback: "MIDPOINT",
+            thirdQuartileAdPlayback: "THIRD_QUARTILE",
+            completedAdPlayback: "COMPLETE",
+            noAdsToPlay: "ALL_ADS_COMPLETED",
+            error: "AD_ERROR"
+        };
+
+        //VAST tracking events
+        var vastTrackingEvents = {
+            start: "start",
+            firstQuartile: "firstQuartile",
+            midpoint: "midpoint",
+            thirdQuartile: "thirdQuartile",
+            complete: "complete"
+        }
+
+        //Indexed DB parameters
+        const dbName = "mediafiles_db";
+        const dbVersion = 1;
+        const objectStoreName = "mediafiles_os";
+
+        var useDb = true;
+
+        //Create instance of db object
+        var db;
+
+        // Open our database; it is created if it doesn't already exist
+        // (see onupgradeneeded below)
+        let request = window.indexedDB.open(dbName, dbVersion);
+
+        // onerror handler signifies that the database didn't open successfully
+        request.onerror = function () {
+            console.log('**VENGO** Database failed to open');
+
+            //Send command to brightsign player to continue on
+            //sendBrightSignUDPMessage();
+
+            useDb = false;
+            getBrightSignUserVariables();
+        };
+
+        // Setup the database tables if this has not already been done
+        request.onupgradeneeded = function (e) {
+            console.log('**VENGO** Database upgrade needed');
+
+            // Grab a reference to the opened database
+            let idb = request.result;
+            console.log("**VENGO** DB old version: " + e.oldVersion);
+
+            try {
+                // Create an objectStore to store mediafiles
+                let objectStore = idb.createObjectStore(objectStoreName, { keyPath: 'id' });
+
+                // Define what data items the objectStore will contain
+                objectStore.createIndex('blob', 'blob', { unique: true });
+            }
+            catch (err) {
+                //In the case of upgrades, delete the old object store to avoid conflicts
+                idb.deleteObjectStore(objectStoreName);
+
+                let objectStore = idb.createObjectStore(objectStoreName, { keyPath: 'id' });
+                objectStore.createIndex('blob', 'blob', { unique: true });
+            }
+
+            console.log('**VENGO** Database setup complete');
+        };
+
+        // onsuccess handler signifies that the database opened successfully
+        request.onsuccess = function () {
+            console.log('**VENGO** Database opened succesfully');
+
+            // Store the opened database object in the db variable
+            db = request.result;
+
+            //Initiate script
+            getBrightSignUserVariables();
+        };
+
+
+        //************
+        //FUNCTIONS
+        //************
+
+        /**
+         * Sends a UDP message to Bright Author to interact with UDP event
+         */
+        function sendBrightSignUDPMessage() {
+            if (enableBSIntegration) {
+                var bsSocketMessage = new BSDatagramSocket();
+                bsSocketMessage.SendTo(bsUDPDestination, bsUDPPort, "vengo");
+                bsSocketMessage.Close();
+            }
+            console.log("**VENGO** BS UDP message: vengo");
+        }
+
+        /**
+         * Returns a BrightSign Player unique identifier
+         */
+        function getBrightSignPlayerDeviceId() {
+            //If there is an error aquiring device info, most likely
+            //running in a browser therefore disable BS Integration
+            try {
+                if (enableBSIntegration) {
+                    var deviceInfo = new BSDeviceInfo();
+                    return deviceInfo.deviceUniqueId;
+                }
+            } catch (error) {
+                enableBSIntegration = false;
+            }
+            return testingAdUnitId;
+        }
+
+        /**
+         * Gets the user variables defined in the presentation
+         * in Bright Author
+         * 
+         * Uses Device ID unless ad unit id is explicitly defined
+         */
+        function getBrightSignUserVariables() {
+            //Default values for Vengo ad parameters
+            var adUnitId = getBrightSignPlayerDeviceId();
+            var organizationId = defaultOrganizationId;
+
+            if (enableBSIntegration) {
+                var url = "http://localhost:8080/GetUserVars";
+
+                //Get user variables
+                try {
+                    var xhr = new XMLHttpRequest();
+                    xhr.open("GET", url, true);
+                    xhr.onreadystatechange = function () {
+                        if (this.readyState === XMLHttpRequest.DONE && this.status === 200) {
+                            try {
+                                //Parse XML response
+                                var userVars = this.responseXML.getElementsByTagName("BrightSignUserVariables");
+                                console.log("UserVars", this.responseText);
+                                if (userVars[0].childElementCount > 0) {
+                                    for (var i = 0; i < userVars[0].childElementCount; i++) {
+                                        //Get organization id or ad unit id
+                                        if (userVars[0].children[i].attributes[0].nodeValue == "organization_id") {
+                                            organizationId = userVars[0].children[i].textContent;
+                                        }
+                                        else if (userVars[0].children[i].attributes[0].nodeValue == "ad_unit_id") {
+                                            adUnitId = userVars[0].children[i].textContent;
+                                        }
+                                    }
+                                }
+                            } catch (e) {
+                                console.error(e);
+                            }
+
+                            //Start main function to get ads
+                            getVASTTag(adUnitId, organizationId);
+                        }
+                    };
+                    xhr.send(null);
+                } catch (e) {
+                    console.error(e);
+                }
+            }
+            else {
+                //Start main function to get ads
+                getVASTTag(adUnitId, organizationId);
+            }
+        }
+
+        /**
+         * Gets VAST tag from Vengo staging ad server
+         * using the ad unit id and organization id 
+         */
+        function getVASTTag(adUnitId, organizationId) {
+            var url = "https://corsproxy.vengo.tv/" + baseUrl + "?organization_id=" + organizationId + "&ad_unit_id=" + adUnitId;
+
+            try {
+                console.log("**VENGO** VAST Url: " + url);
+
+                var xhr = new XMLHttpRequest();
+                xhr.open("GET", url, true);
+                xhr.onreadystatechange = function () {
+                    if (this.readyState === XMLHttpRequest.DONE) {
+                        if (this.status === 200) {
+                            console.log(this.responseText);
+                            parseXML(this.responseXML);
+                        }
+                        else {
+                            console.log("**VENGO** Failed to get VAST tag");
+                            setAdEventState(adEvents.error);
+                        }
+                    }
+                };
+                xhr.send(null);
+            } catch (e) {
+                console.log("**VENGO** GetVASTTag Error");
+                console.error(e);
+                setAdEventState(adEvents.error);
+            }
+        }
+
+        //Hit endpoint given url
+        function hitEndpoint(url) {
+            try {
+                var xhr = new XMLHttpRequest();
+                xhr.open("GET", url, true);
+                xhr.send(null);
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        /**
+         * Hits the specified tracking endpoint
+         * @param {vastTrackingEvents} event
+         */
+        function sendTrackingEvent(event) {
+            console.log("**VENGO** Playback state: " + event);
+            hitEndpoint(document.getElementById("vast-player").getAttribute("data-tracking-" + event + "-url"));
+        }
+
+        /**
+        * Hits the impression endpoint
+        */
+        function sendImpression() {
+            console.log("**VENGO** Sent impression to ad server");
+            hitEndpoint(document.getElementById("vast-player").getAttribute("data-impression-url"));
+        }
+
+        /**
+        * Hits the error endpoint
+        */
+        function sendError() {
+            console.log("**VENGO** Sent rejection to ad server");
+            hitEndpoint(document.getElementById("vast-player").getAttribute("data-error-url"));
+        }
+
+        /**
+         * Parses the VAST XML
+         */
+        function parseXML(vast) {
+            //Checks if the VAST tag has a MediaFile element
+            //If it doesn't, then there isn't a file to be played
+            var mediaFiles = vast.getElementsByTagName("MediaFile");
+            if (mediaFiles.length > 0) {
+                document.getElementById("vast-player").setAttribute("data-impression-url", vast.getElementsByTagName("Impression")[0].textContent);
+                document.getElementById("vast-player").setAttribute("data-error-url", vast.getElementsByTagName("Error")[0].textContent);
+
+                var trackingEvents = vast.getElementsByTagName("Tracking");
+                for (var i = 0; i < trackingEvents.length; i++) {
+                    document.getElementById("vast-player").setAttribute("data-tracking-" + trackingEvents[i].attributes[0].nodeValue + "-url",
+                        trackingEvents[i].textContent);
+                }
+
+                //Get media duration in milliseconds
+                var hms = (vast.getElementsByTagName("Duration")[0].textContent).split(":");
+                var durationInMs = (+hms[0]) * 60 * 60 + (+hms[1]) * 60 + (+hms[2]) * 1000;
+
+                if (maxAdDurationInMs == 0 || durationInMs <= maxAdDurationInMs) {
+                    var mediaFile = mediaFiles[0];
+                    var mediaFileType = mediaFile.attributes[3].nodeValue;
+                    var mediaFileId = mediaFile.attributes[0].nodeValue;
+                    var mediaFileUrl = mediaFile.textContent;
+
+                    if (!useDb) {
+                        setupVASTPlayerAndEvents(durationInMs, mediaFileType, undefined, mediaFileUrl);
+                    }
+                    else {
+                        //Create an object store on the transaction
+                        var objectStore = db.transaction([objectStoreName], "readwrite").objectStore(objectStoreName);
+
+                        let getRequest = objectStore.get(mediaFileId);
+                        getRequest.onsuccess = function () {
+                            // If the result exists in the database (is not undefined)
+                            if (getRequest.result) {
+                                console.log("**VENGO** Getting video blob from object store: " + mediaFileId);
+
+                                //Play media file
+                                setupVASTPlayerAndEvents(durationInMs, mediaFileType, getRequest.result.blob, mediaFileUrl);
+                                db.close();
+                            } else {
+                                // Fetch the videos from the network
+                                // Use cors proxy due to programmatic server cors restriction
+                                fetch((enableBSIntegration ? "" : "https://corsproxy.vengo.tv/") + mediaFileUrl)
+                                    .then((response) => {
+                                        if (!response.ok) {
+                                            console.log("**VENGO** Error in network response");
+                                        }
+                                        return response.blob();
+                                    })
+                                    .then((mediaFileBlob) => {
+
+                                        //Make a request to add our newItem object to the object store
+                                        objectStore = db.transaction([objectStoreName], "readwrite").objectStore(objectStoreName);
+                                        var objectStoreRequest = objectStore.add({ id: mediaFileId, blob: mediaFileBlob });
+
+                                        objectStoreRequest.onsuccess = (event) => {
+                                            console.log("**VENGO** " + mediaFileId + " saved to object store");
+                                            //Play media file
+                                            //Use real URL because BS player cannot play blob in memory
+                                            setupVASTPlayerAndEvents(durationInMs, mediaFileType, undefined, mediaFileUrl);
+                                        }
+                                        db.close();
+                                    }).catch(function () {
+                                        console.log("**VENGO** Error fetching media file");
+                                        setupVASTPlayerAndEvents(durationInMs, mediaFileType, undefined, mediaFileUrl);
+                                        db.close();
+                                    });
+                            }
+                        };
+                    }
+                }
+                else {
+                    sendError();
+                    setAdEventState(adEvents.noAdsToPlay);
+                }
+
+            }
+            else {
+                console.log("**VENGO** No ad to play");
+                setAdEventState(adEvents.noAdsToPlay);
+                //setAdEventState(adEvents.error);
+            }
+        }
+
+        /**
+         * Sets up the VAST tracking events and plays the video
+         */
+        function setupVASTPlayerAndEvents(durationInMs, type, blob, mediaFileUrl) {
+            if (type.includes("video")) {
+                var vastPlayer = document.getElementById("vast-player");
+                vastPlayer.addEventListener("loadedmetadata", function () {
+                    setAdEventState(adEvents.loadedAdPlayer);
+
+                    //Compute the quartile durations
+                    var duration = this.duration;
+                    var firstQuartile = duration * 0.25;
+                    var midpoint = duration * 0.5;
+                    var thirdQuartile = duration * 0.75;
+
+                    var firstQuartileComplete = false;
+                    var midpointComplete = false;
+                    var thirdQuartileComplete = false;
+
+                    //Attach listener to video duration to send tracking
+                    //events at the appropriate time
+                    this.addEventListener("timeupdate", function () {
+                        if (this.currentTime >= thirdQuartile && !thirdQuartileComplete) {
+                            thirdQuartileComplete = true;
+                            sendTrackingEvent(vastTrackingEvents.thirdQuartile);
+                            setAdEventState(adEvents.thirdQuartileAdPlayback);
+                        }
+                        else if (this.currentTime >= midpoint && !midpointComplete) {
+                            midpointComplete = true;
+                            sendTrackingEvent(vastTrackingEvents.midpoint);
+                            setAdEventState(adEvents.midpointAdPlayback);
+                        }
+                        else if (this.currentTime >= firstQuartile && !firstQuartileComplete) {
+                            firstQuartileComplete = true;
+                            sendTrackingEvent(vastTrackingEvents.firstQuartile);
+                            setAdEventState(adEvents.firstQuartileAdPlayback);
+                        }
+                    });
+                });
+
+                //Attach listener to wait until enough of the video has loaded
+                //before playing
+                vastPlayer.addEventListener("canplaythrough", function () {
+                    setPlayerState(adEvents.loadedAdPlayer);
+                    setAdEventState(adEvents.loadedAdPlayer);
+
+                    startPlayback();
+                });
+
+                //Attach listener to send complete tracking event
+                vastPlayer.addEventListener("ended", function () {
+                    sendTrackingEvent(vastTrackingEvents.complete);
+
+                    setPlayerState(adEvents.completedAdPlayback);
+                    setAdEventState(adEvents.completedAdPlayback);
+                    setAdEventState(adEvents.noAdsToPlay);
+                });
+
+                if (blob == undefined) {
+                    vastPlayer.src = mediaFileUrl;
+                }
+                else {
+                    vastPlayer.src = URL.createObjectURL(blob);
+                }
+                vastPlayer.load();
+            }
+            else if (type.includes("image")) {
+                var imagePlayer = document.getElementById("image-player");
+                if (blob == undefined) {
+                    imagePlayer.src = mediaFileUrl;
+                }
+                else {
+                    imagePlayer.src = URL.createObjectURL(blob);
+                }
+
+                imagePlayer.classList.remove("hide");
+                imagePlayer.classList.add("show");
+
+                sendTrackingEvent(vastTrackingEvents.start);
+                setPlayerState(adEvents.startedAdPlayback);
+                setAdEventState(adEvents.startedAdPlayback);
+                sendImpression();
+
+                //Compute the quartile durations
+                var duration = durationInMs;
+                var firstQuartile = duration * 0.25;
+                var midpoint = duration * 0.5;
+                var thirdQuartile = duration * 0.75;
+
+                var firstQuartileComplete = false;
+                var midpointComplete = false;
+                var thirdQuartileComplete = false;
+
+                var startTime = Date.now();
+                var imageTimer = setInterval(function () {
+                    var currentTime = Date.now() - startTime;
+                    if (currentTime >= thirdQuartile && !thirdQuartileComplete) {
+                        thirdQuartileComplete = true;
+                        sendTrackingEvent(vastTrackingEvents.thirdQuartile);
+                        setAdEventState(adEvents.thirdQuartileAdPlayback);
+                    }
+                    else if (currentTime >= midpoint && !midpointComplete) {
+                        midpointComplete = true;
+                        sendTrackingEvent(vastTrackingEvents.midpoint);
+                        setAdEventState(adEvents.midpointAdPlayback);
+                    }
+                    else if (currentTime >= firstQuartile && !firstQuartileComplete) {
+                        firstQuartileComplete = true;
+                        sendTrackingEvent(vastTrackingEvents.firstQuartile);
+                        setAdEventState(adEvents.firstQuartileAdPlayback);
+                    }
+                    else if (currentTime >= durationInMs) {
+                        clearInterval(imageTimer);
+
+                        sendTrackingEvent(vastTrackingEvents.complete);
+
+                        setPlayerState(adEvents.completedAdPlayback);
+                        setAdEventState(adEvents.completedAdPlayback);
+                        setAdEventState(adEvents.noAdsToPlay);
+                    }
+                }, 1000);
+            }
+            else {
+                console.log("**VENGO** Ad type not video or image");
+                setAdEventState(adEvents.error);
+            }
+        }
+
+        /**
+         * Starts playback of the video and hits the required endpoints
+         */
+        function startPlayback() {
+            document.getElementById("vast-player").classList.remove("hide");
+            document.getElementById("vast-player").classList.add("show");
+            document.getElementById("vast-player").play();
+
+            sendTrackingEvent(vastTrackingEvents.start);
+            setPlayerState(adEvents.startedAdPlayback);
+            setAdEventState(adEvents.startedAdPlayback);
+            sendImpression();
+        }
+
+        /**
+         * Sets the ad event data attribute
+         * @param {adEvents} playerState
+         */
+        function setPlayerState(playerState) {
+            document.getElementById("vast-player").setAttribute("data-state", playerState);
+        }
+
+        /**
+         * Sets the ad event in the document title and
+         * posts a message to the parent frame
+         */
+        function setAdEventState(adEvent) {
+            //Set the document title
+            document.title = adEvent;
+
+            //Post message to player if all ads have played or error
+            if (adEvent == adEvents.noAdsToPlay || adEvent == adEvents.error) {
+                sendBrightSignUDPMessage();
+            }
+        }
+
+        /**
+        * Gets the specified parameter value given the key. Returns a default value if
+        * key is null (doesn't exist)
+        * @param {string} parameterKey
+        * @param {any} defaultReturnValue
+        */
+        function getUrlParameter(parameterKey, defaultReturnValue) {
+            var parameter = urlParam(parameterKey);
+            return (parameter == null || parameter == 0) ? defaultReturnValue : parameter;
+        }
+
+        /**
+             * Gets value of url parameter
+             * @param {string} name
+             */
+        function urlParam(name) {
+            //IE-based browsers do not support URLSearchParams
+            //Credit: https://stackoverflow.com/a/45760894
+            var results = new RegExp('[\?&]' + name + '=([^&#]*)').exec(window.location.href);
+            if (results == null) {
+                return null;
+            }
+            else {
+                return decodeURI(results[1]) || 0;
+            }
+        }
+    </script>
+</body>
+
+</html>
