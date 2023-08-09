@@ -1,20 +1,6 @@
 # BrightAuthor Integration
 Connect to the Vengo Ad Network using an HTML5 state in BrightAuthor
 
-## Script Overview
-The HTML script is based on the [Vengo VAST tag wrapper](https://github.com/vengolabs/vast-wrapper) which parses the Vengo Ad Server VAST tag, plays the ad content in an HTML5 video element, and hits certain URL endpoints to receive ad play credit. Additional functions have been added to interact with the BrightSign player and BrightAuthor CMS.
-
-### BrightSign Specific Functions
-
-#### `getBrightSignPlayerDeviceId()`
-This function uses the BrightScript-Javascript object [`BSDeviceInfo`](https://brightsign.atlassian.net/wiki/spaces/DOC/pages/370672370/BSDeviceInfo) to get the player's unique Id. This Id is used as a backup if the `ad_unit_id` user variable is not set.
-
-#### `getBrightSignUserVariables()`
-This function gets the user variables `ad_unit_id` and `organization_id` that have been set in the [BrightAuthor presentation settings](https://brightsign.atlassian.net/wiki/spaces/DOC/pages/404623943/Presentation+Settings#PresentationSettings-Variablesvariables). If no variables have been set, then the `ad_unit_id` is defaulted to the unique device Id and the `organization_id` is defaulted to `brightsign`.
-
-#### `sendBrightSignUDPMessage()`
-This function uses the BrightScript-Javascript object [`BSDatagramSocket`](https://brightsign.atlassian.net/wiki/spaces/DOC/pages/370672365/BSDatagramSocket) to interact with a [UDP Input event](https://brightsign.atlassian.net/wiki/spaces/DOC/pages/388432930/Event+Properties#EventProperties-UDPEventudp) to tell the presentation to advance to the next state. The script defines the UDP destination as `127.0.0.1` and the UDP port as `5000`. However, the script should be modified to correspond to the [UDP settings in the presentation](https://brightsign.atlassian.net/wiki/spaces/DOC/pages/404623943/Presentation+Settings#PresentationSettings-Networkingnetworking).
-
 ## Instructions
 
 Watch walkthrough video: https://www.youtube.com/watch?v=G-CpXYJD_Nw
@@ -37,3 +23,17 @@ Watch walkthrough video: https://www.youtube.com/watch?v=G-CpXYJD_Nw
 
 ### Caching
 To enable caching using IndexedDB, [enable reserve storage in BrightAuthor](https://brightsign.atlassian.net/wiki/spaces/DOC/pages/395313524/Application+Preferences#ApplicationPreferences-Storage). At least 10% should be reserved for HTML IndexedDB.
+
+## Script Overview
+The HTML script is based on the [Vengo VAST tag wrapper](https://github.com/vengolabs/vast-wrapper) which parses the Vengo Ad Server VAST tag, plays the ad content in an HTML5 video element, and hits certain URL endpoints to receive ad play credit. Additional functions have been added to interact with the BrightSign player and BrightAuthor CMS.
+
+### BrightSign Specific Functions
+
+#### `getBrightSignPlayerDeviceId()`
+This function uses the BrightScript-Javascript object [`BSDeviceInfo`](https://brightsign.atlassian.net/wiki/spaces/DOC/pages/370672370/BSDeviceInfo) to get the player's unique Id. This Id is used as a backup if the `ad_unit_id` user variable is not set.
+
+#### `getBrightSignUserVariables()`
+This function gets the user variables `ad_unit_id` and `organization_id` that have been set in the [BrightAuthor presentation settings](https://brightsign.atlassian.net/wiki/spaces/DOC/pages/404623943/Presentation+Settings#PresentationSettings-Variablesvariables). If no variables have been set, then the `ad_unit_id` is defaulted to the unique device Id and the `organization_id` is defaulted to `brightsign`.
+
+#### `sendBrightSignUDPMessage()`
+This function uses the BrightScript-Javascript object [`BSDatagramSocket`](https://brightsign.atlassian.net/wiki/spaces/DOC/pages/370672365/BSDatagramSocket) to interact with a [UDP Input event](https://brightsign.atlassian.net/wiki/spaces/DOC/pages/388432930/Event+Properties#EventProperties-UDPEventudp) to tell the presentation to advance to the next state. The script defines the UDP destination as `127.0.0.1` and the UDP port as `5000`. However, the script should be modified to correspond to the [UDP settings in the presentation](https://brightsign.atlassian.net/wiki/spaces/DOC/pages/404623943/Presentation+Settings#PresentationSettings-Networkingnetworking).
